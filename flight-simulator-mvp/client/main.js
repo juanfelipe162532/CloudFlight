@@ -14,14 +14,19 @@ let otherPlayers = new Map();
 let playerState = {
     position: { x: 0, y: 1000, z: 0 },
     rotation: { x: 0, y: 0, z: 0 },
-    velocity: { x: 0, y: 0, z: 0 }
+    velocity: { x: 0, y: 0, z: 0 },
+    currentThrottle: 0.5,  // Valor actual del acelerador (0-1)
+    throttleRate: 0.02,    // Tasa de cambio del acelerador por frame
+    minSpeedForControl: 30 // Velocidad mínima para mantener control
 };
 
 // Controles
 let keys = {
-    w: false, a: false, s: false, d: false,
-    ArrowUp: false, ArrowDown: false,
-    ArrowLeft: false, ArrowRight: false
+    KeyW: false, KeyA: false, KeyS: false, KeyD: false,
+    KeyQ: false, KeyE: false, // Roll izquierda/derecha
+    ArrowUp: false, ArrowDown: false, // Control de aceleración
+    ArrowLeft: false, ArrowRight: false,
+    Space: false, ShiftLeft: false // Subir/Bajar directo
 };
 
 // Elementos DOM
@@ -33,7 +38,7 @@ const radar = document.getElementById('radar');
 const controls = document.getElementById('controls');
 
 // Inicializar el juego cuando main.js se carga (THREE.js ya está disponible)
-console.log('🎮 Inicializando simulador de vuelo...');
+console.log(' Inicializando simulador de vuelo...');
 init();
 
 function init() {
@@ -57,9 +62,9 @@ function setupEventListeners() {
         }
     });
     
-    // Prevenir scroll con flechas
+    // Prevenir scroll con flechas y otros controles
     window.addEventListener('keydown', (e) => {
-        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
             e.preventDefault();
         }
     });
@@ -67,14 +72,14 @@ function setupEventListeners() {
 
 function connectToServer() {
     try {
-        connectionStatus.textContent = '🔄 Conectando al servidor...';
+        connectionStatus.textContent = ' Conectando al servidor...';
         connectionStatus.className = 'status-connecting';
         
         ws = new WebSocket(SERVER_URL);
         
         ws.onopen = () => {
-            console.log('🌐 Conectado al servidor');
-            connectionStatus.textContent = '✅ Conectado! Listo para volar';
+            console.log(' Conectado al servidor');
+            connectionStatus.textContent = ' Conectado! Listo para volar';
             connectionStatus.className = 'status-connected';
             startButton.disabled = false;
             
@@ -87,22 +92,22 @@ function connectToServer() {
         };
         
         ws.onclose = () => {
-            console.log('🌐 Desconectado del servidor');
-            connectionStatus.textContent = '❌ Desconectado. Recarga la página.';
+            console.log(' Desconectado del servidor');
+            connectionStatus.textContent = ' Desconectado. Recarga la página.';
             connectionStatus.className = 'status-error';
             startButton.disabled = true;
         };
         
         ws.onerror = (error) => {
             console.error('Error WebSocket:', error);
-            connectionStatus.textContent = '❌ Error de conexión al servidor';
+            connectionStatus.textContent = ' Error de conexión al servidor';
             connectionStatus.className = 'status-error';
             startButton.disabled = true;
         };
         
     } catch (error) {
         console.error('Error conectando:', error);
-        connectionStatus.textContent = '❌ No se pudo conectar al servidor';
+        connectionStatus.textContent = ' No se pudo conectar al servidor';
         connectionStatus.className = 'status-error';
         startButton.disabled = true;
     }
@@ -150,7 +155,7 @@ function handleServerMessage(message) {
 function startGame() {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
         // Show better error message
-        connectionStatus.textContent = '❌ Sin conexión al servidor';
+        connectionStatus.textContent = ' Sin conexión al servidor';
         connectionStatus.className = 'status-error';
         startButton.style.animation = 'shake 0.5s ease-in-out';
         setTimeout(() => startButton.style.animation = '', 500);
@@ -159,7 +164,7 @@ function startGame() {
     
     // Disable button and show loading
     startButton.disabled = true;
-    startButton.textContent = '🚀 Iniciando...';
+    startButton.textContent = ' Iniciando...';
     
     // Smooth fade transition
     startScreen.style.transition = 'opacity 1s ease-out, transform 1s ease-out';
@@ -190,7 +195,7 @@ function startGame() {
         requestNearbyPlayers();
         gameLoop();
         
-        console.log('🎮 ¡Juego iniciado! ¡Buen vuelo!');
+        console.log(' ¡Juego iniciado! ¡Buen vuelo!');
     }, 1000);
 }
 
@@ -302,7 +307,7 @@ function createAircraft() {
     aircraft.position.copy(playerState.position);
     scene.add(aircraft);
     
-    console.log('✈️ Avión creado');
+    console.log(' Avión creado');
 }
 
 function setupLights() {
@@ -356,7 +361,7 @@ function addOtherPlayer(id, position, rotation) {
         targetRotation: rotation ? { ...rotation } : { x: 0, y: 0, z: 0 }
     });
     
-    console.log(`🛩️ Jugador ${id} agregado`);
+    console.log(` Jugador ${id} agregado`);
 }
 
 function updateOtherPlayer(id, position, rotation, velocity) {
@@ -372,7 +377,7 @@ function removeOtherPlayer(id) {
     if (player) {
         scene.remove(player.mesh);
         otherPlayers.delete(id);
-        console.log(`🛩️ Jugador ${id} eliminado`);
+        console.log(` Jugador ${id} eliminado`);
     }
 }
 
@@ -390,62 +395,114 @@ function gameLoop() {
 }
 
 function updateControls() {
-    const input = {
-        pitch: 0,
-        yaw: 0,
-        roll: 0,
-        throttle: 0
+    // Control de aceleración gradual con PageUp/PageDown
+    if (keys.ArrowUp) {
+        playerState.currentThrottle = Math.min(1, playerState.currentThrottle + playerState.throttleRate);
+    }
+    if (keys.ArrowDown) {
+        playerState.currentThrottle = Math.max(0, playerState.currentThrottle - playerState.throttleRate);
+    }
+
+    // Calcular la velocidad actual
+    const velocityMagnitude = Math.sqrt(
+        playerState.velocity.x * playerState.velocity.x +
+        playerState.velocity.y * playerState.velocity.y +
+        playerState.velocity.z * playerState.velocity.z
+    );
+
+    // Determinar si el avión tiene suficiente velocidad para control
+    const hasControl = velocityMagnitude > playerState.minSpeedForControl;
+
+    return {
+        pitch: keys.ArrowUp ? -0.5 : (keys.ArrowDown ? 0.5 : 0),
+        yaw: keys.KeyA ? -0.5 : (keys.KeyD ? 0.5 : 0),
+        roll: keys.KeyQ ? -0.5 : (keys.KeyE ? 0.5 : 0),
+        throttle: playerState.currentThrottle,
+        verticalInput: keys.Space ? 1 : (keys.ShiftLeft ? -1 : 0),
+        hasControl: hasControl
     };
-    
-    // Controles WASD para rotación
-    if (keys['KeyW']) input.pitch = -1; // Nariz arriba
-    if (keys['KeyS']) input.pitch = 1;  // Nariz abajo
-    if (keys['KeyA']) input.yaw = -1;   // Girar izquierda
-    if (keys['KeyD']) input.yaw = 1;    // Girar derecha
-    if (keys['KeyQ']) input.roll = -1;  // Roll izquierda
-    if (keys['KeyE']) input.roll = 1;   // Roll derecha
-    
-    // Flechas para aceleración
-    if (keys['ArrowUp']) input.throttle = 1;
-    if (keys['ArrowDown']) input.throttle = -0.5;
-    
-    return input;
 }
 
 function updatePhysics() {
-    // Esta lógica se maneja en el servidor, aquí solo predicción local
     const input = updateControls();
     const deltaTime = 0.016;
-    const rotationSpeed = 2;
-    const speed = 100;
+    const rotationSpeed = 1.5;
+    const speed = 150;
+    const verticalSpeed = 80;
     
-    // Predicción local de rotación
-    if (input.pitch) playerState.rotation.x += input.pitch * rotationSpeed * deltaTime;
-    if (input.yaw) playerState.rotation.y += input.yaw * rotationSpeed * deltaTime;
-    if (input.roll) playerState.rotation.z += input.roll * rotationSpeed * deltaTime;
+    // Constantes de física
+    const GRAVITY = 9.8;
+    const AIR_DENSITY_SEA_LEVEL = 1.225;
+    const SCALE_FACTOR = 0.1;
     
-    playerState.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, playerState.rotation.x));
+    // Calcular la magnitud de la velocidad
+    const velocityMagnitude = Math.sqrt(
+        playerState.velocity.x * playerState.velocity.x +
+        playerState.velocity.y * playerState.velocity.y +
+        playerState.velocity.z * playerState.velocity.z
+    );
     
-    // Predicción local de movimiento
+    // Solo permitir control si la velocidad es suficiente
+    if (input.hasControl) {
+        // Predicción local de rotación (solo si hay control)
+        if (input.pitch) playerState.rotation.x += input.pitch * rotationSpeed * deltaTime;
+        if (input.yaw) playerState.rotation.y += input.yaw * rotationSpeed * deltaTime;
+        if (input.roll) playerState.rotation.z += input.roll * rotationSpeed * deltaTime;
+        
+        // Limitar rotaciones
+        playerState.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, playerState.rotation.x));
+        playerState.rotation.z = Math.max(-Math.PI/4, Math.min(Math.PI/4, playerState.rotation.z));
+    } else {
+        // Si no hay control, el avión tiende a nivelarse
+        playerState.rotation.x *= 0.98;
+        playerState.rotation.z *= 0.98;
+    }
+    
+    // Calcular vector de dirección hacia adelante
     const forward = {
         x: Math.sin(playerState.rotation.y) * Math.cos(playerState.rotation.x),
         y: -Math.sin(playerState.rotation.x),
         z: Math.cos(playerState.rotation.y) * Math.cos(playerState.rotation.x)
     };
     
-    playerState.velocity.x = forward.x * speed * input.throttle;
-    playerState.velocity.y = forward.y * speed * input.throttle;
-    playerState.velocity.z = forward.z * speed * input.throttle;
+    // Calcular sustentación basada en la inclinación y velocidad
+    const liftFactor = Math.max(0, Math.cos(playerState.rotation.x) * Math.cos(playerState.rotation.z));
+    const altitudeFactor = Math.max(0.1, 1 - (playerState.position.y / 20000));
     
+    // Aplicar gravedad con reducción por altitud
+    const gravityEffect = GRAVITY * (1 - input.throttle * 0.3) * altitudeFactor * SCALE_FACTOR;
+    
+    // Calcular sustentación (depende de la velocidad y el ángulo de ataque)
+    const speedFactor = velocityMagnitude / 100; // Normalizar la velocidad
+    const lift = Math.min(1, speedFactor) * liftFactor * GRAVITY * SCALE_FACTOR * 2;
+    
+    // Aplicar empuje del motor (aceleración)
+    const thrust = input.throttle > 0 ? input.throttle * 0.2 : 0;
+    
+    // Actualizar velocidad
+    playerState.velocity.x += forward.x * thrust;
+    playerState.velocity.y += (forward.y * thrust) - (gravityEffect - lift);
+    playerState.velocity.z += forward.z * thrust;
+    
+    // Aplicar resistencia del aire (depende de la velocidad al cuadrado)
+    const airResistance = 0.99 - (velocityMagnitude * 0.0001);
+    playerState.velocity.x *= airResistance;
+    playerState.velocity.y *= airResistance;
+    playerState.velocity.z *= airResistance;
+    
+    // Actualizar posición
     playerState.position.x += playerState.velocity.x * deltaTime;
     playerState.position.y += playerState.velocity.y * deltaTime;
     playerState.position.z += playerState.velocity.z * deltaTime;
     
-    playerState.position.y = Math.max(10, playerState.position.y);
+    // Límites del mundo
+    playerState.position.y = Math.max(10, Math.min(20000, playerState.position.y));
     
-    // Actualizar posición del avión
-    aircraft.position.copy(playerState.position);
-    aircraft.rotation.set(playerState.rotation.x, playerState.rotation.y, playerState.rotation.z);
+    // Actualizar modelo 3D
+    if (aircraft) {
+        aircraft.position.copy(playerState.position);
+        aircraft.rotation.set(playerState.rotation.x, playerState.rotation.y, playerState.rotation.z);
+    }
 }
 
 function updateCamera() {

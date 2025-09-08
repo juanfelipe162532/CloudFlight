@@ -112,16 +112,19 @@ function handlePlayerMessage(playerId, message) {
 
 function updatePlayerFromInput(player, input) {
     const deltaTime = 0.016; // ~60fps
-    const speed = 100; // m/s velocidad base
-    const rotationSpeed = 2; // rad/s
+    const speed = 150; // m/s velocidad base (aumentada)
+    const rotationSpeed = 1.5; // rad/s (reducida para mejor control)
+    const verticalSpeed = 80; // m/s para movimiento vertical directo
     
     // Actualizar rotación basada en inputs
     if (input.pitch) player.rotation.x += input.pitch * rotationSpeed * deltaTime;
     if (input.yaw) player.rotation.y += input.yaw * rotationSpeed * deltaTime;
     if (input.roll) player.rotation.z += input.roll * rotationSpeed * deltaTime;
     
-    // Limitar pitch para evitar loops
+    // Limitar pitch para evitar loops completos
     player.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, player.rotation.x));
+    // Limitar roll para vuelo más estable
+    player.rotation.z = Math.max(-Math.PI/4, Math.min(Math.PI/4, player.rotation.z));
     
     // Calcular velocidad basada en rotación y throttle
     const throttle = input.throttle || 0;
@@ -131,17 +134,30 @@ function updatePlayerFromInput(player, input) {
         z: Math.cos(player.rotation.y) * Math.cos(player.rotation.x)
     };
     
+    // Movimiento basado en throttle
     player.velocity.x = forward.x * speed * throttle;
     player.velocity.y = forward.y * speed * throttle;
     player.velocity.z = forward.z * speed * throttle;
+    
+    // Agregar movimiento vertical directo
+    const verticalInput = input.verticalInput || 0;
+    if (verticalInput !== 0) {
+        player.velocity.y += verticalInput * verticalSpeed;
+    }
+    
+    // Aplicar gravedad suave cuando no hay input vertical
+    if (verticalInput === 0 && throttle <= 0) {
+        player.velocity.y -= 20 * deltaTime; // Gravedad suave
+    }
     
     // Actualizar posición
     player.position.x += player.velocity.x * deltaTime;
     player.position.y += player.velocity.y * deltaTime;
     player.position.z += player.velocity.z * deltaTime;
     
-    // Evitar que el avión se estrelle contra el suelo
-    player.position.y = Math.max(10, player.position.y);
+    // Límites de altura
+    player.position.y = Math.max(10, player.position.y); // Mínima
+    player.position.y = Math.min(20000, player.position.y); // Máxima
     
     player.lastUpdate = Date.now();
 }
