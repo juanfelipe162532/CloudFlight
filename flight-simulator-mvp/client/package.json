@@ -1,0 +1,17 @@
+{
+  "name": "flight-simulator-client",
+  "version": "1.0.0",
+  "description": "Cliente del simulador de vuelo multijugador",
+  "main": "index.html",
+  "scripts": {
+    "dev": "npx serve . -p 3000",
+    "build": "echo 'Cliente listo para desplegar'",
+    "preview": "npx serve . -p 3000"
+  },
+  "devDependencies": {
+    "serve": "^14.2.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudFlight - Simulador de Vuelo</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✈️</text></svg>">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background: linear-gradient(135deg, #0f1419 0%, #1a2332 25%, #2d3748 50%, #1a365d 75%, #0f2027 100%);
+            overflow: hidden;
+            color: white;
+        }
+
+        /* Animated background */
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(255, 119, 198, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 40% 40%, rgba(120, 255, 198, 0.05) 0%, transparent 50%);
+            animation: float 20s ease-in-out infinite;
+            z-index: -1;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            33% { transform: translateY(-20px) rotate(1deg); }
+            66% { transform: translateY(10px) rotate(-1deg); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 10px 30px rgba(124, 58, 237, 0.4); }
+            50% { transform: scale(1.02); box-shadow: 0 15px 40px rgba(124, 58, 237, 0.6); }
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        
+        #gameContainer {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            color: white;
+            font-size: 14px;
+            pointer-events: none;
+        }
+        
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        #radar {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 200px;
+            height: 200px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 2px solid #00ff00;
+            border-radius: 50%;
+            overflow: hidden;
+        }
+        
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            font-size: 12px;
+        }
+        
+        #startScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at center, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.95) 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 200;
+            backdrop-filter: blur(10px);
+        }
+
+        .main-logo {
+            font-family: 'Orbitron', monospace;
+            font-size: 4.5em;
+            font-weight: 900;
+            margin-bottom: 10px;
+            background: linear-gradient(45deg, #00d4ff, #7c3aed, #ff6b6b);
+            background-size: 200% 200%;
+            animation: gradient-shift 3s ease infinite;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 0 0 30px rgba(124, 58, 237, 0.5);
+            letter-spacing: 3px;
+        }
+
+        @keyframes gradient-shift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        .subtitle {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 1.8em;
+            font-weight: 300;
+            color: #a0aec0;
+            margin-bottom: 40px;
+            text-align: center;
+            letter-spacing: 2px;
+        }
+
+        .info-cards {
+            display: flex;
+            gap: 30px;
+            margin-bottom: 40px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .info-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            text-align: center;
+            min-width: 150px;
+            transition: all 0.3s ease;
+        }
+
+        .info-card:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(124, 58, 237, 0.3);
+        }
+
+        .info-card .icon {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .info-card .title {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #00d4ff;
+        }
+
+        .info-card .desc {
+            font-size: 0.9em;
+            color: #a0aec0;
+        }
+        
+        #startButton {
+            padding: 18px 50px;
+            font-size: 1.4em;
+            font-weight: 600;
+            font-family: 'Orbitron', monospace;
+            background: linear-gradient(45deg, #7c3aed, #00d4ff);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.4s ease;
+            pointer-events: all;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            box-shadow: 0 10px 30px rgba(124, 58, 237, 0.4);
+            position: relative;
+            overflow: hidden;
+        }
+
+        #startButton::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        #startButton:hover::before {
+            left: 100%;
+        }
+        
+        #startButton:hover {
+            background: linear-gradient(45deg, #8b5cf6, #0ea5e9);
+            transform: translateY(-3px) scale(1.05);
+            box-shadow: 0 20px 40px rgba(124, 58, 237, 0.6);
+        }
+
+        #startButton:active {
+            transform: translateY(0) scale(0.98);
+        }
+
+        #connectionStatus {
+            margin-top: 30px;
+            font-size: 1.1em;
+            padding: 12px 24px;
+            border-radius: 25px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(5px);
+            transition: all 0.3s ease;
+        }
+
+        .status-connecting {
+            color: #fbbf24 !important;
+            border-color: rgba(251, 191, 36, 0.3) !important;
+        }
+
+        .status-connected {
+            color: #10b981 !important;
+            border-color: rgba(16, 185, 129, 0.3) !important;
+        }
+
+        .status-error {
+            color: #ef4444 !important;
+            border-color: rgba(239, 68, 68, 0.3) !important;
+        }
+        
+        .radar-dot {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: #00ff00;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+        
+        .radar-dot.self {
+            background: #ffff00;
+            width: 6px;
+            height: 6px;
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <!-- Pantalla de inicio -->
+        <div id="startScreen">
+            <div class="main-logo">☁️ CLOUDFLIGHT</div>
+            <div class="subtitle">Simulador de Vuelo Multijugador</div>
+            
+            <div class="info-cards">
+                <div class="info-card">
+                    <div class="icon">🌍</div>
+                    <div class="title">Mundo Abierto</div>
+                    <div class="desc">Explora un vasto cielo 3D</div>
+                </div>
+                <div class="info-card">
+                    <div class="icon">👥</div>
+                    <div class="title">Multijugador</div>
+                    <div class="desc">Vuela con otros pilotos</div>
+                </div>
+                <div class="info-card">
+                    <div class="icon">📡</div>
+                    <div class="title">Radar</div>
+                    <div class="desc">Sistema de detección</div>
+                </div>
+                <div class="info-card">
+                    <div class="icon">🎮</div>
+                    <div class="title">Controles</div>
+                    <div class="desc">WASD + Flechas</div>
+                </div>
+            </div>
+            
+            <button id="startButton">🚀 Comenzar Vuelo</button>
+            <div id="connectionStatus" class="status-connecting">🔄 Conectando al servidor...</div>
+        </div>
+        
+        <!-- Interfaz del juego -->
+        <div id="ui" class="hidden">
+            <div id="hud">
+                <div>🎯 ID: <span id="playerId">-</span></div>
+                <div>🌐 Jugadores: <span id="playerCount">0</span></div>
+                <div>📍 Alt: <span id="altitude">0</span>m</div>
+                <div>⚡ Vel: <span id="speed">0</span>m/s</div>
+                <div>🧭 Dir: <span id="heading">0</span>°</div>
+            </div>
+        </div>
+        
+        <!-- Radar -->
+        <div id="radar" class="hidden"></div>
+        
+        <!-- Controles -->
+        <div id="controls" class="hidden">
+            <div><strong>Controles:</strong></div>
+            <div>WASD - Rotación</div>
+            <div>↑↓ - Aceleración</div>
+            <div>Mouse - Cámara libre</div>
+        </div>
+    </div>
+    
+    <!-- Three.js local -->
+    <script src="three.min.js" onload="console.log('THREE.js loaded locally')" onerror="console.error('Failed to load THREE.js locally')"></script>
+    <script>
+        // Wait for THREE.js to load before loading main.js
+        function loadMainScript() {
+            if (typeof THREE !== 'undefined') {
+                console.log('✅ THREE.js is ready, loading main.js');
+                const script = document.createElement('script');
+                script.src = 'main.js';
+                document.head.appendChild(script);
+            } else {
+                console.log('⏳ Waiting for THREE.js...');
+                setTimeout(loadMainScript, 100);
+            }
+        }
+        
+        // Start checking once the page loads
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', loadMainScript);
+        } else {
+            loadMainScript();
+        }
+    </script>
+</body>
+</html>
