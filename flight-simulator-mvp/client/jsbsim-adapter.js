@@ -10,12 +10,12 @@ export class JSBSimAdapter {
         this.simulationTime = 0;
         this.dt = 1.0 / 60.0; // 60 Hz simulation rate
         
-        // Estado interno de la simulación
+        // Estado interno de la simulación - Miami, FL a altitud mínima
         this.state = {
-            position: { x: 0, y: 1000, z: 0 },
+            position: { x: 0, y: 50, z: 0 }, // Altitud mínima de seguridad
             rotation: { x: 0, y: 0, z: 0 },
             velocity: { x: 150, y: 0, z: 0 }, // Velocidad inicial mayor para mejor control
-            altitude: 1000,
+            altitude: 50,
             airspeed: 150,
             verticalSpeed: 0,
             throttle: 0.7 // Acelerador inicial más alto
@@ -148,26 +148,40 @@ export class JSBSimAdapter {
             this.state.altitude = this.state.position.y;
             this.state.verticalSpeed = this.state.velocity.y * 60; // ft/min
             
-            // Detección de colisión con el suelo (crash)
-            if (this.state.position.y <= 0) {
-                // Colisión con el suelo
-                this.state.position.y = 0;
+            // Detección de colisión con el terreno realista
+            const positionInMeters = {
+                x: this.state.position.x * 0.3048, // pies a metros
+                z: this.state.position.z * 0.3048
+            };
+            
+            // Obtener elevación del terreno (si la función existe)
+            let terrainElevation = 0;
+            if (typeof window !== 'undefined' && window.getTerrainElevation) {
+                terrainElevation = window.getTerrainElevation(positionInMeters.x, positionInMeters.z) / 0.3048; // metros a pies
+            }
+            
+            if (this.state.position.y <= terrainElevation + 5) { // 5 pies de margen
+                // Colisión con el terreno
+                this.state.position.y = terrainElevation + 5;
                 
                 // Verificar velocidad de impacto
                 const impactSpeed = Math.abs(this.state.velocity.y);
                 const horizontalSpeed = Math.sqrt(this.state.velocity.x * this.state.velocity.x + this.state.velocity.z * this.state.velocity.z);
                 
-                if (impactSpeed > 10 || horizontalSpeed > 50) {
-                    // CRASH! - impacto demasiado fuerte
-                    console.log('💥 CRASH! Impacto:', impactSpeed.toFixed(1), 'ft/s vertical,', horizontalSpeed.toFixed(1), 'ft/s horizontal');
+                if (impactSpeed > 15 || horizontalSpeed > 60 || terrainElevation > 100) {
+                    // CRASH! - impacto demasiado fuerte o terreno muy accidentado
+                    console.log('💥 CRASH! Impacto:', impactSpeed.toFixed(1), 'ft/s vertical,', horizontalSpeed.toFixed(1), 'ft/s horizontal, elevación:', terrainElevation.toFixed(1), 'ft');
                     this.crashed = true;
                     this.state.velocity = { x: 0, y: 0, z: 0 };
+                    this.state.position.y = terrainElevation;
                 } else {
-                    // Aterrizaje suave
-                    console.log('✈️ Aterrizaje suave');
+                    // Aterrizaje suave o rodaje en tierra
+                    if (impactSpeed > 5) {
+                        console.log('✈️ Aterrizaje en elevación:', terrainElevation.toFixed(1), 'ft');
+                    }
                     this.state.velocity.y = 0;
-                    this.state.velocity.x *= 0.8; // Fricción
-                    this.state.velocity.z *= 0.8;
+                    this.state.velocity.x *= 0.9; // Fricción del terreno
+                    this.state.velocity.z *= 0.9;
                 }
                 this.state.verticalSpeed = 0;
             }
@@ -215,12 +229,12 @@ export class JSBSimAdapter {
     reset() {
         if (!this.initialized) return false;
         
-        // Reinicializar estado
+        // Reinicializar estado - Miami, FL a altitud mínima
         this.state = {
-            position: { x: 0, y: 1000, z: 0 },
+            position: { x: 0, y: 50, z: 0 },
             rotation: { x: 0, y: 0, z: 0 },
             velocity: { x: 150, y: 0, z: 0 },
-            altitude: 1000,
+            altitude: 50,
             airspeed: 150,
             verticalSpeed: 0,
             throttle: 0.7
