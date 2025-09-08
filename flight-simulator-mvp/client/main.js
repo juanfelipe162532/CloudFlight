@@ -1,5 +1,8 @@
 // CloudFlight - Simulador de Vuelo Multijugador
 
+// Importar JSBSim Adapter
+import jsbsim from './jsbsim-adapter.js';
+
 // Configuración inicial
 const SERVER_URL = 'ws://localhost:8080'; // Cambiar para producción
 
@@ -15,8 +18,8 @@ let playerState = {
     position: { x: 0, y: 1000, z: 0 },
     rotation: { x: 0, y: 0, z: 0 },
     velocity: { x: 0, y: 0, z: 0 },
-    currentThrottle: 0.5,  // Valor actual del acelerador (0-1)
-    throttleRate: 0.02,    // Tasa de cambio del acelerador por frame
+    currentThrottle: 0.7,  // Valor inicial más alto para mejor control
+    throttleRate: 0.03,    // Tasa de cambio del acelerador más rápida
     minSpeedForControl: 30 // Velocidad mínima para mantener control
 };
 
@@ -36,15 +39,29 @@ const connectionStatus = document.getElementById('connectionStatus');
 const ui = document.getElementById('ui');
 const radar = document.getElementById('radar');
 const controls = document.getElementById('controls');
+const debugInfo = document.getElementById('debugInfo');
+
+// Inicializar el juego
+console.log(' Inicializando simulador de vuelo...');
+init();
+
+async function init() {
+    setupEventListeners();
+    connectToServer();
+    
+    // Inicializar JSBSim
+    console.log(' Inicializando motor de física JSBSim...');
+    const physicsInitialized = await jsbsim.init();
+    if (!physicsInitialized) {
+        console.error(' No se pudo inicializar el motor de física');
+        return;
+    }
+    console.log(' Motor de física JSBSim inicializado correctamente');
+}
 
 // Inicializar el juego cuando main.js se carga (THREE.js ya está disponible)
 console.log(' Inicializando simulador de vuelo...');
 init();
-
-function init() {
-    setupEventListeners();
-    connectToServer();
-}
 
 function setupEventListeners() {
     startButton.addEventListener('click', startGame);
@@ -333,6 +350,14 @@ function setupLights() {
 function addOtherPlayer(id, position, rotation) {
     if (otherPlayers.has(id)) return;
     
+    // Verificar que la escena esté inicializada
+    if (!scene) {
+        console.log('Escena no inicializada, posponiendo agregar jugador', id);
+        // Posponer hasta que la escena esté lista
+        setTimeout(() => addOtherPlayer(id, position, rotation), 1000);
+        return;
+    }
+    
     // Crear avión para otro jugador (color diferente)
     const otherAircraftGroup = new THREE.Group();
     
@@ -374,24 +399,11 @@ function updateOtherPlayer(id, position, rotation, velocity) {
 
 function removeOtherPlayer(id) {
     const player = otherPlayers.get(id);
-    if (player) {
+    if (player && scene) {
         scene.remove(player.mesh);
         otherPlayers.delete(id);
         console.log(` Jugador ${id} eliminado`);
     }
-}
-
-function gameLoop() {
-    updateControls();
-    updatePhysics();
-    updateCamera();
-    updateOtherPlayersSmooth();
-    updateHUD();
-    updateRadar();
-    sendInputToServer();
-    
-    renderer.render(scene, camera);
-    requestAnimationFrame(gameLoop);
 }
 
 function updateControls() {
@@ -403,106 +415,85 @@ function updateControls() {
         playerState.currentThrottle = Math.max(0, playerState.currentThrottle - playerState.throttleRate);
     }
 
-    // Calcular la velocidad actual
-    const velocityMagnitude = Math.sqrt(
-        playerState.velocity.x * playerState.velocity.x +
-        playerState.velocity.y * playerState.velocity.y +
-        playerState.velocity.z * playerState.velocity.z
-    );
+    // Determinar controles de vuelo
+    const pitch = keys.KeyW ? -1 : (keys.KeyS ? 1 : 0);
+    const roll = keys.KeyQ ? -1 : (keys.KeyE ? 1 : 0);
+    const yaw = keys.KeyA ? -1 : (keys.KeyD ? 1 : 0);
+    const vertical = keys.Space ? 1 : (keys.ShiftLeft ? -1 : 0);
 
-    // Determinar si el avión tiene suficiente velocidad para control
-    const hasControl = velocityMagnitude > playerState.minSpeedForControl;
+    // Debug: mostrar controles activos
+    const anyKeyPressed = Object.values(keys).some(k => k);
+    if (anyKeyPressed) {
+        console.log('🎮 Controles activos:', {
+            W: keys.KeyW, S: keys.KeyS, A: keys.KeyA, D: keys.KeyD,
+            Q: keys.KeyQ, E: keys.KeyE, UP: keys.ArrowUp, DOWN: keys.ArrowDown,
+            SPACE: keys.Space, SHIFT: keys.ShiftLeft,
+            pitch, roll, yaw, throttle: playerState.currentThrottle
+        });
+    }
 
     return {
-        pitch: keys.ArrowUp ? -0.5 : (keys.ArrowDown ? 0.5 : 0),
-        yaw: keys.KeyA ? -0.5 : (keys.KeyD ? 0.5 : 0),
-        roll: keys.KeyQ ? -0.5 : (keys.KeyE ? 0.5 : 0),
+        elevator: pitch,
+        aileron: roll,
+        rudder: yaw,
         throttle: playerState.currentThrottle,
-        verticalInput: keys.Space ? 1 : (keys.ShiftLeft ? -1 : 0),
-        hasControl: hasControl
+        verticalInput: vertical
     };
 }
 
 function updatePhysics() {
     const input = updateControls();
-    const deltaTime = 0.016;
-    const rotationSpeed = 1.5;
-    const speed = 150;
-    const verticalSpeed = 80;
     
-    // Constantes de física
-    const GRAVITY = 9.8;
-    const AIR_DENSITY_SEA_LEVEL = 1.225;
-    const SCALE_FACTOR = 0.1;
-    
-    // Calcular la magnitud de la velocidad
-    const velocityMagnitude = Math.sqrt(
-        playerState.velocity.x * playerState.velocity.x +
-        playerState.velocity.y * playerState.velocity.y +
-        playerState.velocity.z * playerState.velocity.z
-    );
-    
-    // Solo permitir control si la velocidad es suficiente
-    if (input.hasControl) {
-        // Predicción local de rotación (solo si hay control)
-        if (input.pitch) playerState.rotation.x += input.pitch * rotationSpeed * deltaTime;
-        if (input.yaw) playerState.rotation.y += input.yaw * rotationSpeed * deltaTime;
-        if (input.roll) playerState.rotation.z += input.roll * rotationSpeed * deltaTime;
+    // Usar JSBSim para la simulación de física
+    const state = jsbsim.update({
+        elevator: input.elevator,
+        aileron: input.aileron,
+        rudder: input.rudder,
+        throttle: input.throttle
+    });
+
+    if (state) {
+        // Debug: mostrar estado recibido de JSBSim
+        if (Math.random() < 0.01) { // Solo mostrar 1% de las veces para no saturar la consola
+            console.log('🛩️ JSBSim state:', {
+                pos: state.position,
+                rot: state.rotation,
+                vel: state.velocity
+            });
+        }
         
-        // Limitar rotaciones
-        playerState.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, playerState.rotation.x));
-        playerState.rotation.z = Math.max(-Math.PI/4, Math.min(Math.PI/4, playerState.rotation.z));
+        // Actualizar estado del jugador con la simulación
+        playerState.position = state.position;
+        playerState.rotation = state.rotation;
+        playerState.velocity = state.velocity;
+        
+        // Actualizar información de depuración
+        updateDebugInfo();
     } else {
-        // Si no hay control, el avión tiende a nivelarse
-        playerState.rotation.x *= 0.98;
-        playerState.rotation.z *= 0.98;
+        console.warn('⚠️ JSBSim no devolvió estado válido');
     }
-    
-    // Calcular vector de dirección hacia adelante
-    const forward = {
-        x: Math.sin(playerState.rotation.y) * Math.cos(playerState.rotation.x),
-        y: -Math.sin(playerState.rotation.x),
-        z: Math.cos(playerState.rotation.y) * Math.cos(playerState.rotation.x)
-    };
-    
-    // Calcular sustentación basada en la inclinación y velocidad
-    const liftFactor = Math.max(0, Math.cos(playerState.rotation.x) * Math.cos(playerState.rotation.z));
-    const altitudeFactor = Math.max(0.1, 1 - (playerState.position.y / 20000));
-    
-    // Aplicar gravedad con reducción por altitud
-    const gravityEffect = GRAVITY * (1 - input.throttle * 0.3) * altitudeFactor * SCALE_FACTOR;
-    
-    // Calcular sustentación (depende de la velocidad y el ángulo de ataque)
-    const speedFactor = velocityMagnitude / 100; // Normalizar la velocidad
-    const lift = Math.min(1, speedFactor) * liftFactor * GRAVITY * SCALE_FACTOR * 2;
-    
-    // Aplicar empuje del motor (aceleración)
-    const thrust = input.throttle > 0 ? input.throttle * 0.2 : 0;
-    
-    // Actualizar velocidad
-    playerState.velocity.x += forward.x * thrust;
-    playerState.velocity.y += (forward.y * thrust) - (gravityEffect - lift);
-    playerState.velocity.z += forward.z * thrust;
-    
-    // Aplicar resistencia del aire (depende de la velocidad al cuadrado)
-    const airResistance = 0.99 - (velocityMagnitude * 0.0001);
-    playerState.velocity.x *= airResistance;
-    playerState.velocity.y *= airResistance;
-    playerState.velocity.z *= airResistance;
-    
-    // Actualizar posición
-    playerState.position.x += playerState.velocity.x * deltaTime;
-    playerState.position.y += playerState.velocity.y * deltaTime;
-    playerState.position.z += playerState.velocity.z * deltaTime;
-    
-    // Límites del mundo
-    playerState.position.y = Math.max(10, Math.min(20000, playerState.position.y));
     
     // Actualizar modelo 3D
     if (aircraft) {
         aircraft.position.copy(playerState.position);
-        aircraft.rotation.set(playerState.rotation.x, playerState.rotation.y, playerState.rotation.z);
+        aircraft.rotation.set(
+            playerState.rotation.x,
+            playerState.rotation.y,
+            playerState.rotation.z
+        );
     }
+}
+
+function updateDebugInfo() {
+    if (!debugInfo) return;
+    
+    const debug = jsbsim.getDebugInfo();
+    debugInfo.innerHTML = `
+        <div>Altitud: ${debug.altitude ? debug.altitude.toFixed(1) : 0} ft</div>
+        <div>Velocidad: ${debug.airspeed ? debug.airspeed.toFixed(1) : 0} kt</div>
+        <div>Vel. Vertical: ${debug.verticalSpeed ? debug.verticalSpeed.toFixed(1) : 0} ft/min</div>
+        <div>Acelerador: ${debug.throttle ? (debug.throttle * 100).toFixed(0) : 0}%</div>
+    `;
 }
 
 function updateCamera() {
@@ -605,6 +596,18 @@ function requestNearbyPlayers() {
             type: 'requestNearbyPlayers'
         }));
     }
+}
+
+function gameLoop() {
+    updatePhysics();
+    updateCamera();
+    updateOtherPlayersSmooth();
+    updateHUD();
+    updateRadar();
+    sendInputToServer();
+    renderer.render(scene, camera);
+    
+    requestAnimationFrame(gameLoop);
 }
 
 function onWindowResize() {
